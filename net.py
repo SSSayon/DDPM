@@ -91,7 +91,6 @@ class EmbedFC(nn.Module):
         x = x.view(-1, self.input_dim)
         return self.model(x)
 
-
 class DDPM(nn.Module):
     def __init__(self, in_channels, n_feat=128) -> None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -163,3 +162,6 @@ class DDPM(nn.Module):
         # out: [batch_size, 1, 28, 28]
 
         return out
+
+class Conditional_DDPM(nn.Module):
+    pass

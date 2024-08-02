@@ -1,51 +1,55 @@
 import torch
-import matplotlib.pyplot as plt
 from tqdm import tqdm
+import numpy as np
 
 from net import DDPM
-from util import Scheduler
+from util import Scheduler, draw
 
+seed = 0
+torch.random.manual_seed(seed)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+T = 1000
+NUM_OUTPUT = 10
+IS_GRADUALLY = True
+DESC = "DDPM"
+STEPS = 1000
 
 @torch.no_grad()
 def main(ckpt):
     model = DDPM(in_channels=1, n_feat=128).to(device)
-    model.load_state_dict(torch.load(f"./checkpoints/{ckpt}.ckpt"))
+    model.load_state_dict(torch.load(f"./checkpoints/{ckpt}.ckpt", map_location=torch.device('cpu'), weights_only=True))
     model.eval()
 
-    x: torch.Tensor = torch.randn((10, 1, 28, 28)).to(device)
+    scheduler = Scheduler(T, seed)
 
+    # x: torch.Tensor = torch.randn((NUM_OUTPUT, 1, 28, 28)).to(device)
 
-    scheduler = Scheduler(1000)
+    x1, x2 = torch.randn((1, 28, 28)), torch.randn((1, 28, 28))
+    x: torch.Tensor = scheduler.interpolate(x1, x2, NUM_OUTPUT).to(device)
 
-    outputs = []
-    for t in tqdm(range(scheduler.T, 0, -1)):    # 1000 ... 1
-        z = torch.randn(x.shape).to(device)
-        x = (x - scheduler.beta[t] ** 2 / scheduler.beta_bar[t] * model(x, torch.Tensor([t / scheduler.T]))) / scheduler.alpha[t] + scheduler.beta[t] * z
+    outputs = x.clone().detach().to("cpu")
 
-        if t % 100 == 0:
-            outputs.append(x.clone().detach().to("cpu"))
+    assert scheduler.T % STEPS == 0
+    tau = np.linspace(scheduler.T, 0, STEPS + 1).astype(int)    # 1000 ... 0
 
-    outputs.append(x.clone().detach().to("cpu"))
+    for idx, t in tqdm(enumerate(tau[:-1]), total=STEPS):
 
-    figure, axes = plt.subplots(11, 10, figsize=(28, 28))
-    for i, output in enumerate(outputs):
-        for j in range(10):
-            axes[i][j].imshow(output[j][0])
-            axes[i][j].axis("off")
+        t_prev = tau[idx + 1]
 
-    # output = x.clone().detach().to("cpu")
-    # figure, axes = plt.subplots(10, 10, figsize=(28, 28))
-    # for k in range(100):
-    #     i = k // 10
-    #     j = k % 10
-    #     axes[i][j].imshow(output[k][0])
-    #     axes[i][j].axis("off")
+        # z = torch.randn(x.shape).to(device)
+        # x = (x - scheduler.beta[t] ** 2 / scheduler.beta_bar[t] * model(x, torch.Tensor([t / scheduler.T]))) / scheduler.alpha[t] + scheduler.beta[t] * z
 
-    plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.1, hspace=0.1)
+        x = scheduler.forward(x, model(x, torch.Tensor([t / scheduler.T])), t_prev, t).to(device)
 
-    plt.show()
-    plt.savefig(f"./output/10_gradually_{ckpt}.png")
+        if (idx + 1) % (STEPS // 10) == 0:
+            if IS_GRADUALLY:
+                outputs = torch.concat((outputs, x.clone().detach().to("cpu")), dim=0)
+
+    if not IS_GRADUALLY:  
+        outputs = x.clone().detach().to("cpu")
+
+    name = f"{DESC}_{STEPS}_gradually_{ckpt}.png" if IS_GRADUALLY else f"{DESC}_{STEPS}_{ckpt}.png"
+    draw(outputs, name, width=NUM_OUTPUT if IS_GRADUALLY else None)
 
 
 if __name__ == "__main__":

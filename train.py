@@ -22,7 +22,7 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     loss = nn.MSELoss()
 
-    scheduler = Scheduler(T)
+    scheduler = Scheduler(T, seed)
 
     step = 0
     while step < STEPS:
