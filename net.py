@@ -214,7 +214,7 @@ class Classifier(nn.Module):
 
         return out
     
-    def gradient(self, x: torch.Tensor, t, labels):
+    def gradient(self, x: torch.Tensor, t, labels):    # see https://spaces.ac.cn/archives/9257
         logits = self.forward(x, t)
         log_prob = F.log_softmax(logits, dim=1)
         log_prob = log_prob[torch.arange(x.shape[0]), labels]

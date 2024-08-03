@@ -1,8 +1,7 @@
 import torch
 from tqdm import tqdm
-import numpy as np
 
-from net import DDPM, Classifier
+from net_classifier_free import ClassifierFreeDDPM
 from util import Scheduler, draw
 
 seed = 0
@@ -12,18 +11,21 @@ T = 1000
 NUM_OUTPUT = 16
 IS_GRADUALLY = False
 STEPS = 20
-GAMMA = 10
-DESC = f"DDPM_with_classifier(gamma={GAMMA})"
+OMEGA = 4
+DESC = f"DDPM_classifier_free(omega={OMEGA})"
 
 @torch.no_grad()
-def main(ckpt, ckpt2):
-    model = DDPM(in_channels=1, n_feat=128).to(device)
-    model.load_state_dict(torch.load(f"./checkpoints/{ckpt}.ckpt", map_location=torch.device('cpu'), weights_only=True))
+def main(ckpt):
+    model = ClassifierFreeDDPM(
+        in_channels=1, 
+        model_channels=96, 
+        out_channels=1, 
+        channel_mult=(1, 2, 2), 
+        attention_resolutions=[],
+        label_num=11
+    ).to(device)
+    model.load_state_dict(torch.load(f"./checkpoints/classifier_free_{ckpt}.ckpt", map_location=torch.device('cpu'), weights_only=True))
     model.eval()
-
-    classifier = Classifier(in_channels=1, n_feat=128).to(device)
-    classifier.load_state_dict(torch.load(f"./checkpoints/classifier_{ckpt2}.ckpt", map_location=torch.device('cpu'), weights_only=True))
-    classifier.eval()
 
     scheduler = Scheduler(T, seed)
 
@@ -33,18 +35,16 @@ def main(ckpt, ckpt2):
     outputs = x.clone().detach().to("cpu")
 
     assert scheduler.T % STEPS == 0
-    tau = np.linspace(scheduler.T, 0, STEPS + 1).astype(int)    # 1000 ... 0
+    tau = torch.linspace(scheduler.T, 0, STEPS + 1).to(int).to(device)    # 1000 ... 0
 
     for idx, t in tqdm(enumerate(tau[:-1]), total=STEPS):
-
         t_prev = tau[idx + 1]
 
-        x = scheduler.forward(x, model(x, t / scheduler.T), t_prev, t).to(device)
-
-        with torch.enable_grad():
-            grad = classifier.gradient(x.clone().detach().requires_grad_(), t / scheduler.T, labels).to(device)
-
-        x += grad * scheduler.sigma_t(t_prev, t) ** 2 * GAMMA    # see https://spaces.ac.cn/archives/9257
+        x = scheduler.forward(    # see https://spaces.ac.cn/archives/9257
+            x, 
+            model(x, t.unsqueeze(0) / scheduler.T, labels) * (1 + OMEGA) - model(x, t.unsqueeze(0) / scheduler.T, torch.ones_like(labels) * 10) * OMEGA, 
+            t_prev, t
+        ).to(device)
 
         if (idx + 1) % (STEPS // 10) == 0:
             if IS_GRADUALLY:
@@ -58,4 +58,4 @@ def main(ckpt, ckpt2):
 
 
 if __name__ == "__main__":
-    main(100366, 500000)
+    main(15000)
