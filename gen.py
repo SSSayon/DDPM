@@ -3,7 +3,7 @@ from tqdm import tqdm
 import numpy as np
 
 from net import DDPM
-from util import Scheduler, draw
+from util import Scheduler, draw, interpolate
 
 seed = 0
 torch.random.manual_seed(seed)
@@ -12,7 +12,7 @@ T = 1000
 NUM_OUTPUT = 10
 IS_GRADUALLY = True
 DESC = "DDPM"
-STEPS = 1000
+STEPS = 20
 
 @torch.no_grad()
 def main(ckpt):
@@ -22,10 +22,10 @@ def main(ckpt):
 
     scheduler = Scheduler(T, seed)
 
-    # x: torch.Tensor = torch.randn((NUM_OUTPUT, 1, 28, 28)).to(device)
+    x: torch.Tensor = torch.randn((NUM_OUTPUT, 1, 28, 28)).to(device)
 
-    x1, x2 = torch.randn((1, 28, 28)), torch.randn((1, 28, 28))
-    x: torch.Tensor = scheduler.interpolate(x1, x2, NUM_OUTPUT).to(device)
+    # x1, x2 = torch.randn((1, 28, 28)), torch.randn((1, 28, 28))
+    # x: torch.Tensor = interpolate(x1, x2, NUM_OUTPUT).to(device)
 
     outputs = x.clone().detach().to("cpu")
 
@@ -39,7 +39,7 @@ def main(ckpt):
         # z = torch.randn(x.shape).to(device)
         # x = (x - scheduler.beta[t] ** 2 / scheduler.beta_bar[t] * model(x, torch.Tensor([t / scheduler.T]))) / scheduler.alpha[t] + scheduler.beta[t] * z
 
-        x = scheduler.forward(x, model(x, torch.Tensor([t / scheduler.T])), t_prev, t).to(device)
+        x = scheduler.forward(x, model(x, t / scheduler.T), t_prev, t).to(device)
 
         if (idx + 1) % (STEPS // 10) == 0:
             if IS_GRADUALLY:

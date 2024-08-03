@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 # reference: https://github.com/TeaPearce/Conditional_Diffusion_MNIST/blob/main/script.py
 class ResidualConvBlock(nn.Module):
@@ -127,7 +128,7 @@ class DDPM(nn.Module):
         )
     
     def forward(self, x: torch.Tensor, t: float) -> torch.Tensor:
-        t = torch.Tensor(t).to(self.device).float()
+        t = torch.tensor(t).to(self.device).float()
         # x: [batch_size, 1, 28, 28]
         
         x = self.init_conv(x)
@@ -163,5 +164,64 @@ class DDPM(nn.Module):
 
         return out
 
-class Conditional_DDPM(nn.Module):
-    pass
+class Classifier(nn.Module):
+    def __init__(self, in_channels, n_feat=128, n_class=10) -> None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        divide_groups = 8
+        assert n_feat % divide_groups == 0, "n_feat should be divided by {}".format(divide_groups)
+        super(Classifier, self).__init__()
+        self.device = device
+        self.in_channels = in_channels
+        self.n_feat = n_feat
+        self.n_class = n_class
+        
+        self.init_conv = ResidualConvBlock(in_channels, n_feat, is_res=True, device=device)
+        
+        self.down1 = UnetDown(n_feat, n_feat, device=device)
+        self.down2 = UnetDown(n_feat, 2*n_feat, device=device)
+        
+        self.to_vec = nn.Sequential(nn.AvgPool2d(7), nn.GELU())
+        
+        self.timeembed = EmbedFC(1, 2*n_feat, device=device)
+        
+        self.out = nn.Sequential(
+            nn.Linear(2*n_feat, n_class, device=device),
+            # nn.Softmax(dim=1)    # NOTE: NO NEED TO add a softmax layer, as CrossEntropyLoss has a built-in softmax!
+        )
+    
+    def forward(self, x: torch.Tensor, t: float) -> torch.Tensor:
+        t = torch.tensor(t).to(self.device).float()
+        # x: [batch_size, 1, 28, 28]
+        
+        x = self.init_conv(x)
+        # x: [batch_size, n_feat, 28, 28]
+        
+        down1 = self.down1(x)
+        # down1: [batch_size, n_feat, 14, 14]
+        
+        down2 = self.down2(down1)
+        # down2: [batch_size, 2*n_feat, 7, 7]
+        
+        hiddenvec = self.to_vec(down2)
+        # hiddenvec: [batch_size, 2*n_feat, 1, 1]
+        
+        # embed time step
+        temb = self.timeembed(t).view(-1, 2*self.n_feat, 1, 1)
+        # temb: [batch_size, 2*n_feat, 1, 1]
+        
+        out = self.out((hiddenvec + temb).reshape(-1, 2*self.n_feat)).reshape(-1, self.n_class)
+        # out: [batch_size, n_class]
+
+        return out
+    
+    def gradient(self, x: torch.Tensor, t, labels):
+        logits = self.forward(x, t)
+        log_prob = F.log_softmax(logits, dim=1)
+        log_prob = log_prob[torch.arange(x.shape[0]), labels]
+
+        grads = []
+        for i in range(x.shape[0]):
+            grad = torch.autograd.grad(log_prob[i], x, retain_graph=True, create_graph=True)[0]
+            grads.append(grad[i])
+
+        return torch.stack(grads)

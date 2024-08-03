@@ -20,7 +20,7 @@ def draw(outputs: torch.Tensor, name, width=None, labels=None):
             ax.imshow(outputs[i * width + j][0])
             ax.axis("off")
             if labels is not None: 
-                ax.set_title(labels[i * width + j], fontdict={"fontsize": 15}, pad=-10)
+                ax.set_title(labels[i * width + j], fontdict={"fontsize": 30}, pad=-10)
 
     plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.1, hspace=0.2)
     plt.savefig(f"./output/{name}")
@@ -69,7 +69,7 @@ class Scheduler():
 
     # ------------ used in diffusion & forward process ------------
 
-    def _sigma_t(self, t_prev, t):
+    def sigma_t(self, t_prev, t):
 
         # choice 1
         return self._beta_bar[t_prev] / self._beta_bar[t] * self._beta_t(t_prev, t)
@@ -80,17 +80,17 @@ class Scheduler():
         # choice 3: sigma = 0, DDIM
         return 0
 
-    def forward(self, x, eps, t_prev, t):    # see https://spaces.ac.cn/archives/9181
-        z = torch.randn_like(x)
+    def forward(self, x: torch.Tensor, eps, t_prev, t):    # see https://spaces.ac.cn/archives/9181
+        z = torch.randn_like(x).to(x.device)
         return (x - (self._beta_bar[t] - self._alpha_t(t_prev, t) * 
-                     torch.sqrt(torch.clamp(self._beta_bar[t_prev] ** 2 - self._sigma_t(t_prev, t) ** 2, torch.tensor(0.0)))) * eps    # floating point error?
-               ) / self._alpha_t(t_prev, t) + self._sigma_t(t_prev, t) * z
+                     torch.sqrt(torch.clamp(self._beta_bar[t_prev] ** 2 - self.sigma_t(t_prev, t) ** 2, torch.tensor(0.0).to(x.device)))) * eps    # floating point error?
+               ) / self._alpha_t(t_prev, t) + self.sigma_t(t_prev, t) * z
 
-    def interpolate(self, x1, x2, n):
-        lambdas = torch.linspace(0, 1, n)
-        
-        interpolated = []
-        for lam in lambdas:
-            interpolated.append(x1 * cos(lam * pi / 2) + x2 * sin(lam * pi / 2))
-        
-        return torch.stack(interpolated, dim=0)
+def interpolate(x1, x2, n):
+    lambdas = torch.linspace(0, 1, n)
+    
+    interpolated = []
+    for lam in lambdas:
+        interpolated.append(x1 * cos(lam * pi / 2) + x2 * sin(lam * pi / 2))
+    
+    return torch.stack(interpolated, dim=0)
